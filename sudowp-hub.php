@@ -70,10 +70,10 @@ class SudoWP_Hub {
 	}
 
 	public function render_token_field() {
-		$token = get_option( 'sudowp_hub_gh_token' );
-		echo '<input type="password" name="sudowp_hub_gh_token" value="' . esc_attr( $token ) . '" class="regular-text" />';
-		echo '<p class="description">Optional: Add a GitHub Token if you hit rate limits (Status 403).</p>';
-	}
+    $token = get_option( 'sudowp_hub_gh_token' );
+    echo '<input type="password" name="sudowp_hub_gh_token" value="' . esc_attr( $token ) . '" class="regular-text" />';
+    echo '<p class="description"><strong>Optional:</strong> Keeps the service free and open. Add a GitHub Token only if you experience search issues or rate limits.</p>';
+}
 
 	public function enqueue_assets( $hook ) {
 		if ( 'toplevel_page_sudowp-hub' !== $hook ) {
