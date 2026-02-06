@@ -221,8 +221,8 @@ class SudoWP_Hub {
 			'headers' => array( 'User-Agent' => 'WordPress/SudoWP-Hub' )
 		);
 		if ( ! empty( $token ) ) {
-			// Use proper GitHub API authentication format
-			$args['headers']['Authorization'] = 'Bearer ' . $token;
+			// GitHub personal access tokens use 'token' prefix (not 'Bearer')
+			$args['headers']['Authorization'] = 'token ' . $token;
 		}
 
 		$response = wp_remote_get( $this->api_url . '?q=' . urlencode( $query ), $args );
@@ -375,24 +375,41 @@ class SudoWP_Hub {
 			return false;
 		}
 
-		// Must be from github.com
-		if ( 'github.com' !== $parsed_url['host'] && 'www.github.com' !== $parsed_url['host'] ) {
-			return false;
-		}
-
-		// Path should match the expected pattern: /{org}/{repo}/archive/refs/heads/{branch}.zip
-		$path_pattern = '/^\/' . preg_quote( $this->github_org, '/' ) . '\/[a-zA-Z0-9_-]+\/archive\/refs\/heads\/[a-zA-Z0-9_-]+\.zip$/';
-		
-		if ( ! preg_match( $path_pattern, $parsed_url['path'] ) ) {
+		// Must be from github.com (not www.github.com)
+		if ( 'github.com' !== $parsed_url['host'] ) {
 			return false;
 		}
 
 		// Additional validation: slug should be alphanumeric with hyphens/underscores only
-		if ( ! preg_match( '/^[a-zA-Z0-9_-]+$/', $slug ) ) {
+		if ( ! $this->is_valid_slug( $slug ) ) {
+			return false;
+		}
+
+		// Path should match: /{org}/{slug}/archive/refs/heads/{branch}.zip
+		// Ensure the slug in the URL matches the provided slug parameter
+		$expected_path_start = '/' . $this->github_org . '/' . $slug . '/archive/refs/heads/';
+		
+		if ( strpos( $parsed_url['path'], $expected_path_start ) !== 0 ) {
+			return false;
+		}
+
+		// Verify the path ends with .zip and contains a valid branch name
+		if ( ! preg_match( '/^' . preg_quote( $expected_path_start, '/' ) . '[a-zA-Z0-9_-]+\.zip$/', $parsed_url['path'] ) ) {
 			return false;
 		}
 
 		return true;
+	}
+
+	/**
+	 * Validate slug format - reusable validation method
+	 * 
+	 * @param string $slug The slug to validate
+	 * @return bool True if valid, false otherwise
+	 */
+	private function is_valid_slug( $slug ) {
+		// Slug should be alphanumeric with hyphens/underscores only, and not empty
+		return ! empty( $slug ) && preg_match( '/^[a-zA-Z0-9_-]+$/', $slug );
 	}
 
 	/**
@@ -401,19 +418,17 @@ class SudoWP_Hub {
 	public function rename_github_source( $source, $remote_source, $upgrader ) {
 		global $wp_filesystem;
 
-		// Use the slug stored during install (already sanitized)
+		// Use the slug stored during install (already validated)
 		if ( empty( $this->current_install_slug ) ) {
 			return $source;
 		}
 
-		// Sanitize slug again for extra safety (defense in depth)
-		$safe_slug = preg_replace( '/[^a-zA-Z0-9_-]/', '', $this->current_install_slug );
-		
-		if ( empty( $safe_slug ) ) {
+		// Re-validate slug using centralized validation method
+		if ( ! $this->is_valid_slug( $this->current_install_slug ) ) {
 			return $source;
 		}
 		
-		$new_source = trailingslashit( $remote_source ) . $safe_slug . '/';
+		$new_source = trailingslashit( $remote_source ) . $this->current_install_slug . '/';
 
 		if ( $source !== $new_source ) {
 			$wp_filesystem->move( $source, $new_source );
