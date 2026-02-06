@@ -307,7 +307,7 @@ class SudoWP_Hub {
 			wp_send_json_error( 'Permission Denied' );
 		}
 
-		$url  = isset( $_POST['repo_url'] ) ? $_POST['repo_url'] : '';
+		$url  = isset( $_POST['repo_url'] ) ? esc_url_raw( $_POST['repo_url'] ) : '';
 		$slug = isset( $_POST['slug'] ) ? sanitize_text_field( $_POST['slug'] ) : '';
 		$type = isset( $_POST['type'] ) ? sanitize_text_field( $_POST['type'] ) : 'plugin';
 
@@ -371,11 +371,16 @@ class SudoWP_Hub {
 		// Parse and validate URL
 		$parsed_url = wp_parse_url( $url );
 		
-		if ( ! $parsed_url || ! isset( $parsed_url['host'] ) || ! isset( $parsed_url['path'] ) ) {
+		if ( ! $parsed_url || ! isset( $parsed_url['host'] ) || ! isset( $parsed_url['path'] ) || ! isset( $parsed_url['scheme'] ) ) {
 			return false;
 		}
 
-		// Must be from github.com (not www.github.com)
+		// Must use HTTPS protocol to prevent protocol downgrade attacks
+		if ( 'https' !== $parsed_url['scheme'] ) {
+			return false;
+		}
+
+		// Must be from github.com (not www.github.com or other subdomains)
 		if ( 'github.com' !== $parsed_url['host'] ) {
 			return false;
 		}
@@ -393,7 +398,7 @@ class SudoWP_Hub {
 			return false;
 		}
 
-		// Verify the path ends with .zip and contains a valid branch name
+		// Verify the path ends with .zip and contains a valid branch name (alphanumeric, hyphens, underscores)
 		if ( ! preg_match( '/^' . preg_quote( $expected_path_start, '/' ) . '[a-zA-Z0-9_-]+\.zip$/', $parsed_url['path'] ) ) {
 			return false;
 		}
