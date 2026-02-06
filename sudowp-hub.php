@@ -16,6 +16,7 @@ class SudoWP_Hub {
 
 	private $github_org = 'Sudo-WP'; // Your GitHub Organization
 	private $api_url    = 'https://api.github.com/search/repositories';
+	private $current_install_slug = null; // Store current installation slug safely
 
 	public static function get_instance() {
 		static $instance = null;
@@ -51,7 +52,9 @@ class SudoWP_Hub {
 	}
 
 	public function register_settings() {
-		register_setting( 'sudowp_hub_options', 'sudowp_hub_gh_token' );
+		register_setting( 'sudowp_hub_options', 'sudowp_hub_gh_token', array(
+			'sanitize_callback' => array( $this, 'sanitize_token' )
+		) );
 		
 		add_settings_section(
 			'sudowp_hub_main',
@@ -69,9 +72,20 @@ class SudoWP_Hub {
 		);
 	}
 
+	public function sanitize_token( $token ) {
+		// Only update if a new token is provided (not empty)
+		if ( empty( $token ) ) {
+			return get_option( 'sudowp_hub_gh_token' );
+		}
+		// Sanitize the token - remove any whitespace
+		return sanitize_text_field( trim( $token ) );
+	}
+
 	public function render_token_field() {
     $token = get_option( 'sudowp_hub_gh_token' );
-    echo '<input type="password" name="sudowp_hub_gh_token" value="' . esc_attr( $token ) . '" class="regular-text" />';
+    // Don't show token value for security - use placeholder instead
+    $placeholder = ! empty( $token ) ? '••••••••••••••••' : '';
+    echo '<input type="password" name="sudowp_hub_gh_token" value="" placeholder="' . esc_attr( $placeholder ) . '" class="regular-text" />';
     echo '<p class="description"><strong>Optional:</strong> Keeps the service free and open. Add a GitHub Token only if you experience search issues or rate limits.</p>';
 }
 
@@ -207,7 +221,8 @@ class SudoWP_Hub {
 			'headers' => array( 'User-Agent' => 'WordPress/SudoWP-Hub' )
 		);
 		if ( ! empty( $token ) ) {
-			$args['headers']['Authorization'] = 'token ' . $token;
+			// Use proper GitHub API authentication format
+			$args['headers']['Authorization'] = 'Bearer ' . $token;
 		}
 
 		$response = wp_remote_get( $this->api_url . '?q=' . urlencode( $query ), $args );
@@ -292,9 +307,14 @@ class SudoWP_Hub {
 			wp_send_json_error( 'Permission Denied' );
 		}
 
-		$url  = $_POST['repo_url'];
-		$slug = sanitize_text_field( $_POST['slug'] );
-		$type = sanitize_text_field( $_POST['type'] ); // 'plugin' or 'theme'
+		$url  = isset( $_POST['repo_url'] ) ? $_POST['repo_url'] : '';
+		$slug = isset( $_POST['slug'] ) ? sanitize_text_field( $_POST['slug'] ) : '';
+		$type = isset( $_POST['type'] ) ? sanitize_text_field( $_POST['type'] ) : 'plugin';
+
+		// SECURITY: Validate that the URL is from the expected GitHub organization
+		if ( ! $this->validate_github_url( $url, $slug ) ) {
+			wp_send_json_error( 'Invalid repository URL. Only SudoWP GitHub repositories are allowed.' );
+		}
 
 		include_once ABSPATH . 'wp-admin/includes/class-wp-upgrader.php';
 		include_once ABSPATH . 'wp-admin/includes/file.php';
@@ -308,14 +328,18 @@ class SudoWP_Hub {
 			$upgrader = new Plugin_Upgrader( $skin );
 		}
 
+		// Store slug in object property so rename_github_source can access it safely
+		$this->current_install_slug = $slug;
+
 		// Add filter to rename the folder (GitHub zipball is repo-branch, we want repo)
 		add_filter( 'upgrader_source_selection', array( $this, 'rename_github_source' ), 10, 3 );
 
 		// Perform Install
 		$result = $upgrader->install( $url );
 
-		// Remove filter
+		// Remove filter and clear stored slug
 		remove_filter( 'upgrader_source_selection', array( $this, 'rename_github_source' ) );
+		$this->current_install_slug = null;
 
 		if ( is_wp_error( $result ) ) {
 			wp_send_json_error( $result->get_error_message() );
@@ -337,18 +361,59 @@ class SudoWP_Hub {
 	}
 
 	/**
+	 * Validate that the URL is from the expected GitHub organization
+	 * 
+	 * @param string $url The URL to validate
+	 * @param string $slug The expected repository slug
+	 * @return bool True if valid, false otherwise
+	 */
+	private function validate_github_url( $url, $slug ) {
+		// Parse and validate URL
+		$parsed_url = wp_parse_url( $url );
+		
+		if ( ! $parsed_url || ! isset( $parsed_url['host'] ) || ! isset( $parsed_url['path'] ) ) {
+			return false;
+		}
+
+		// Must be from github.com
+		if ( 'github.com' !== $parsed_url['host'] && 'www.github.com' !== $parsed_url['host'] ) {
+			return false;
+		}
+
+		// Path should match the expected pattern: /{org}/{repo}/archive/refs/heads/{branch}.zip
+		$path_pattern = '/^\/' . preg_quote( $this->github_org, '/' ) . '\/[a-zA-Z0-9_-]+\/archive\/refs\/heads\/[a-zA-Z0-9_-]+\.zip$/';
+		
+		if ( ! preg_match( $path_pattern, $parsed_url['path'] ) ) {
+			return false;
+		}
+
+		// Additional validation: slug should be alphanumeric with hyphens/underscores only
+		if ( ! preg_match( '/^[a-zA-Z0-9_-]+$/', $slug ) ) {
+			return false;
+		}
+
+		return true;
+	}
+
+	/**
 	 * Smart Renaming: Fixes GitHub's "Repo-Main" folder name issue
 	 */
 	public function rename_github_source( $source, $remote_source, $upgrader ) {
 		global $wp_filesystem;
 
-		// The target name we want (from the prompt slug or sanitized GitHub name)
-		// We can try to grab the repo name from the folder itself by stripping the branch.
-		// Or assume the user sends the 'slug' via POST which we can access here indirectly or store in object.
-		// A safer way is stripping the trailing -main or -master or branch hash.
+		// Use the slug stored during install (already sanitized)
+		if ( empty( $this->current_install_slug ) ) {
+			return $source;
+		}
+
+		// Sanitize slug again for extra safety (defense in depth)
+		$safe_slug = preg_replace( '/[^a-zA-Z0-9_-]/', '', $this->current_install_slug );
 		
-		// Let's assume the folder currently looks like "sudowp-plugin-name-main/"
-		$new_source = trailingslashit( $remote_source ) . $_POST['slug'] . '/';
+		if ( empty( $safe_slug ) ) {
+			return $source;
+		}
+		
+		$new_source = trailingslashit( $remote_source ) . $safe_slug . '/';
 
 		if ( $source !== $new_source ) {
 			$wp_filesystem->move( $source, $new_source );
