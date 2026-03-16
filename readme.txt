@@ -3,7 +3,7 @@ Contributors: sudowp
 Tags: github, installer, security, patch, maintenance, abandoned-plugins
 Requires at least: 6.0
 Tested up to: 6.7
-Stable tag: 1.4.0
+Stable tag: 1.4.1
 License: GPLv2 or later
 License URI: http://www.gnu.org/licenses/gpl-2.0.html
 
@@ -54,6 +54,9 @@ Yes. SudoWP Hub only searches and installs software from the **Sudo-WP** organiz
 To reduce GitHub API calls and improve performance. Results are cached for 5 minutes per unique search term and type. Caches are stored as WordPress transients and are automatically cleared by WordPress.
 
 == Changelog ==
+
+= 1.4.1 =
+* Fix: get_repo_latest_version() now fetches up to 20 tags and selects the highest by semver rather than trusting GitHub's creation-date ordering. Resolves incorrect "Up to date" status when tags were created out of version order.
 
 = 1.4.0 =
 * Feature: Rewritten Updates page with per-row "Update now" links and bulk "Update Selected" functionality.

@@ -3,7 +3,7 @@
  * Plugin Name: SudoWP Hub
  * Plugin URI:  https://sudowp.com
  * Description: Connects to the SudoWP GitHub organization to search and install patched security plugins and themes directly.
- * Version:     1.4.0
+ * Version:     1.4.1
  * Author:      SudoWP
  * Author URI:  https://sudowp.com
  * License:     GPLv2 or later
@@ -19,7 +19,7 @@ defined( 'ABSPATH' ) || exit;
  *
  * Security hardened per WordPress.org plugin guidelines and OWASP recommendations.
  *
- * @version 1.4.0
+ * @version 1.4.1
  */
 class SudoWP_Hub {
 
@@ -1152,8 +1152,12 @@ JS;
 	 * @return array{raw: string, version: string}|false
 	 */
 	private function get_repo_latest_version( $repo_slug ) {
+		// Fetch up to 20 tags and find the highest by semver.
+		// GitHub returns tags sorted by creation date, not version number,
+		// so per_page=1 would return the most recently created tag, not the
+		// highest version. This matters when older tags are created after newer ones.
 		$url = sprintf(
-			'https://api.github.com/repos/%s/%s/tags?per_page=1',
+			'https://api.github.com/repos/%s/%s/tags?per_page=20',
 			rawurlencode( $this->github_org ),
 			rawurlencode( $repo_slug )
 		);
@@ -1166,16 +1170,39 @@ JS;
 
 		$body = json_decode( wp_remote_retrieve_body( $response ), true );
 
-		if ( ! is_array( $body ) || empty( $body ) || ! isset( $body[0]['name'] ) ) {
+		if ( ! is_array( $body ) || empty( $body ) ) {
 			return false;
 		}
 
-		$raw = sanitize_text_field( $body[0]['name'] );
+		// Find the highest semver tag across all returned results.
+		$best_raw     = null;
+		$best_version = null;
 
-		// Strip leading 'v' or 'V' for version comparison (e.g. v1.2.3 becomes 1.2.3).
+		foreach ( $body as $tag ) {
+			if ( ! isset( $tag['name'] ) || ! is_string( $tag['name'] ) ) {
+				continue;
+			}
+			$raw     = sanitize_text_field( $tag['name'] );
+			$version = ltrim( $raw, 'vV' );
+
+			// Skip anything that does not look like a version number.
+			if ( ! preg_match( '/^\d+\.\d+/', $version ) ) {
+				continue;
+			}
+
+			if ( null === $best_version || version_compare( $version, $best_version, '>' ) ) {
+				$best_version = $version;
+				$best_raw     = $raw;
+			}
+		}
+
+		if ( null === $best_raw ) {
+			return false;
+		}
+
 		return array(
-			'raw'     => $raw,
-			'version' => ltrim( $raw, 'vV' ),
+			'raw'     => $best_raw,
+			'version' => $best_version,
 		);
 	}
 
