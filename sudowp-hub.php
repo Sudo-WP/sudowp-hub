@@ -3,7 +3,7 @@
  * Plugin Name: SudoWP Hub
  * Plugin URI:  https://sudowp.com
  * Description: Connects to the SudoWP GitHub organization to search and install patched security plugins and themes directly.
- * Version:     1.2.1
+ * Version:     1.3.0
  * Author:      SudoWP
  * Author URI:  https://sudowp.com
  * License:     GPLv2 or later
@@ -19,7 +19,7 @@ defined( 'ABSPATH' ) || exit;
  *
  * Security hardened per WordPress.org plugin guidelines and OWASP recommendations.
  *
- * @version 1.2.1
+ * @version 1.3.0
  */
 class SudoWP_Hub {
 
@@ -43,6 +43,13 @@ class SudoWP_Hub {
 	 * @var int
 	 */
 	private $cache_ttl = 300;
+
+	/**
+	 * Update check cache TTL in seconds (12 hours).
+	 *
+	 * @var int
+	 */
+	private $update_cache_ttl = 43200;
 
 	/**
 	 * AJAX rate-limit window in seconds.
@@ -91,6 +98,7 @@ class SudoWP_Hub {
 		// AJAX handlers — authenticated users only (no nopriv).
 		add_action( 'wp_ajax_sudowp_hub_search', array( $this, 'ajax_search' ) );
 		add_action( 'wp_ajax_sudowp_hub_install', array( $this, 'ajax_install' ) );
+		add_action( 'wp_ajax_sudowp_hub_check_updates', array( $this, 'ajax_check_updates' ) );
 	}
 
 	/**
@@ -120,6 +128,35 @@ class SudoWP_Hub {
 			array( $this, 'render_page' ),
 			'dashicons-shield',
 			65
+		);
+
+		// Rename the auto-generated first submenu to "Browse".
+		add_submenu_page(
+			'sudowp-hub',
+			__( 'SudoWP Hub', 'sudowp-hub' ),
+			__( 'Browse', 'sudowp-hub' ),
+			'install_plugins',
+			'sudowp-hub'
+		);
+
+		// Add "Updates" submenu.
+		$updates_count = $this->get_pending_update_count();
+		$menu_title    = __( 'Updates', 'sudowp-hub' );
+		if ( $updates_count > 0 ) {
+			$menu_title .= sprintf(
+				' <span class="update-plugins count-%d"><span class="plugin-count">%d</span></span>',
+				$updates_count,
+				$updates_count
+			);
+		}
+
+		add_submenu_page(
+			'sudowp-hub',
+			__( 'SudoWP Updates', 'sudowp-hub' ),
+			$menu_title,
+			'update_plugins',
+			'sudowp-hub-updates',
+			array( $this, 'render_updates_page' )
 		);
 	}
 
@@ -218,6 +255,33 @@ class SudoWP_Hub {
 	 * @param string $hook Current admin page hook.
 	 */
 	public function enqueue_assets( $hook ) {
+		// Updates page assets.
+		if ( 'sudowp-hub_page_sudowp-hub-updates' === $hook ) {
+			wp_register_script(
+				'sudowp-hub-updates',
+				'',
+				array( 'jquery' ),
+				'1.3.0',
+				true
+			);
+
+			wp_localize_script(
+				'sudowp-hub-updates',
+				'SudoWPHubUpdates',
+				array(
+					'ajaxUrl' => admin_url( 'admin-ajax.php' ),
+					'nonce'   => wp_create_nonce( 'sudowp_check_updates' ),
+					'i18n'    => array(
+						'checking' => __( 'Checking…', 'sudowp-hub' ),
+					),
+				)
+			);
+
+			wp_add_inline_script( 'sudowp-hub-updates', $this->get_updates_inline_js() );
+			wp_enqueue_script( 'sudowp-hub-updates' );
+			return;
+		}
+
 		if ( 'toplevel_page_sudowp-hub' !== $hook ) {
 			return;
 		}
@@ -481,22 +545,7 @@ JS;
 			$this->api_url
 		);
 
-		$args = array(
-			'timeout' => 10,
-			'headers' => array(
-				'User-Agent' => 'WordPress/SudoWP-Hub-' . get_bloginfo( 'url' ),
-				'Accept'     => 'application/vnd.github+json',
-				'X-GitHub-Api-Version' => '2022-11-28',
-			),
-		);
-
-		$token = get_option( 'sudowp_hub_gh_token', '' );
-		if ( ! empty( $token ) ) {
-			// Use Bearer per current GitHub API docs.
-			$args['headers']['Authorization'] = 'Bearer ' . $token;
-		}
-
-		$response = wp_remote_get( $api_url, $args );
+		$response = wp_remote_get( $api_url, $this->get_github_api_args() );
 
 		if ( is_wp_error( $response ) ) {
 			wp_send_json_error( __( 'GitHub API Error: ', 'sudowp-hub' ) . $response->get_error_message() );
@@ -901,6 +950,378 @@ JS;
 		}
 
 		return $new_source;
+	}
+
+	// -------------------------------------------------------------------------
+	// Updates: Data Layer
+	// -------------------------------------------------------------------------
+
+	/**
+	 * Return reusable GitHub API request args (headers, timeout, token).
+	 *
+	 * @return array
+	 */
+	private function get_github_api_args() {
+		$args = array(
+			'timeout' => 10,
+			'headers' => array(
+				'User-Agent'           => 'WordPress/SudoWP-Hub-' . get_bloginfo( 'url' ),
+				'Accept'               => 'application/vnd.github+json',
+				'X-GitHub-Api-Version' => '2022-11-28',
+			),
+		);
+
+		$token = get_option( 'sudowp_hub_gh_token', '' );
+		if ( ! empty( $token ) ) {
+			$args['headers']['Authorization'] = 'Bearer ' . $token;
+		}
+
+		return $args;
+	}
+
+	/**
+	 * Get the count of SudoWP plugins with pending updates.
+	 * Uses cached data only; never triggers a fresh API call.
+	 *
+	 * @return int
+	 */
+	private function get_pending_update_count() {
+		$cached = get_transient( 'sudowp_hub_update_data' );
+		if ( false === $cached || ! is_array( $cached ) ) {
+			return 0;
+		}
+
+		return count( array_filter( $cached, function ( $item ) {
+			return ! empty( $item['has_update'] );
+		} ) );
+	}
+
+	/**
+	 * Fetch the full list of repo names in the Sudo-WP GitHub org.
+	 * Cached with the update TTL to avoid repeated API calls.
+	 *
+	 * @return string[]
+	 */
+	private function get_sudowp_org_repos() {
+		$cache_key = 'sudowp_hub_org_repos';
+		$cached    = get_transient( $cache_key );
+
+		if ( false !== $cached && is_array( $cached ) ) {
+			return $cached;
+		}
+
+		$repos    = array();
+		$page     = 1;
+		$per_page = 100;
+
+		do {
+			$url = sprintf(
+				'https://api.github.com/orgs/%s/repos?per_page=%d&page=%d',
+				rawurlencode( $this->github_org ),
+				$per_page,
+				$page
+			);
+
+			$response = wp_remote_get( $url, $this->get_github_api_args() );
+
+			if ( is_wp_error( $response ) || 200 !== wp_remote_retrieve_response_code( $response ) ) {
+				break;
+			}
+
+			$body = json_decode( wp_remote_retrieve_body( $response ), true );
+
+			if ( ! is_array( $body ) ) {
+				break;
+			}
+
+			foreach ( $body as $repo ) {
+				if ( isset( $repo['name'] ) && is_string( $repo['name'] ) ) {
+					$repos[] = sanitize_text_field( $repo['name'] );
+				}
+			}
+
+			$page++;
+		} while ( count( $body ) === $per_page );
+
+		set_transient( $cache_key, $repos, $this->update_cache_ttl );
+
+		return $repos;
+	}
+
+	/**
+	 * Fetch the latest tag version for a single GitHub repo.
+	 * Returns the version string (without leading v) or false on failure.
+	 *
+	 * @param string $repo_slug Repository name.
+	 * @return string|false
+	 */
+	private function get_repo_latest_version( $repo_slug ) {
+		$url = sprintf(
+			'https://api.github.com/repos/%s/%s/tags?per_page=1',
+			rawurlencode( $this->github_org ),
+			rawurlencode( $repo_slug )
+		);
+
+		$response = wp_remote_get( $url, $this->get_github_api_args() );
+
+		if ( is_wp_error( $response ) || 200 !== wp_remote_retrieve_response_code( $response ) ) {
+			return false;
+		}
+
+		$body = json_decode( wp_remote_retrieve_body( $response ), true );
+
+		if ( ! is_array( $body ) || empty( $body ) || ! isset( $body[0]['name'] ) ) {
+			return false;
+		}
+
+		$tag = sanitize_text_field( $body[0]['name'] );
+
+		// Strip leading 'v' or 'V' (e.g. v1.2.3 becomes 1.2.3).
+		return ltrim( $tag, 'vV' );
+	}
+
+	/**
+	 * Gather update data for all installed SudoWP plugins.
+	 *
+	 * @param bool $force_refresh Whether to bypass the transient cache.
+	 * @return array[] Each entry has: slug, name, plugin_file, installed_version, latest_version, has_update, repo_url.
+	 */
+	private function get_sudowp_update_data( $force_refresh = false ) {
+		$cache_key = 'sudowp_hub_update_data';
+
+		if ( ! $force_refresh ) {
+			$cached = get_transient( $cache_key );
+			if ( false !== $cached && is_array( $cached ) ) {
+				return $cached;
+			}
+		}
+
+		if ( ! function_exists( 'get_plugins' ) ) {
+			require_once ABSPATH . 'wp-admin/includes/plugin.php';
+		}
+
+		$all_plugins = get_plugins();
+		$org_repos   = $this->get_sudowp_org_repos();
+
+		if ( empty( $org_repos ) ) {
+			return array();
+		}
+
+		$update_data = array();
+
+		foreach ( $all_plugins as $plugin_file => $plugin_info ) {
+			$folder = strpos( $plugin_file, '/' ) !== false
+				? explode( '/', $plugin_file )[0]
+				: pathinfo( $plugin_file, PATHINFO_FILENAME );
+
+			if ( ! in_array( $folder, $org_repos, true ) ) {
+				continue;
+			}
+
+			$installed_version = $plugin_info['Version'] ?? '0.0.0';
+			$latest_version    = $this->get_repo_latest_version( $folder );
+
+			$has_update = false;
+			if ( $latest_version && version_compare( $latest_version, $installed_version, '>' ) ) {
+				$has_update = true;
+			}
+
+			$update_data[] = array(
+				'slug'              => $folder,
+				'name'              => $plugin_info['Name'] ?? $folder,
+				'plugin_file'       => $plugin_file,
+				'installed_version' => $installed_version,
+				'latest_version'    => $latest_version ? $latest_version : false,
+				'has_update'        => $has_update,
+				'repo_url'          => sprintf( 'https://github.com/%s/%s', $this->github_org, $folder ),
+			);
+		}
+
+		set_transient( $cache_key, $update_data, $this->update_cache_ttl );
+
+		return $update_data;
+	}
+
+	// -------------------------------------------------------------------------
+	// Updates: AJAX
+	// -------------------------------------------------------------------------
+
+	/**
+	 * Handle AJAX request to force-refresh update data.
+	 */
+	public function ajax_check_updates() {
+		check_ajax_referer( 'sudowp_check_updates', '_nonce' );
+
+		if ( ! current_user_can( 'update_plugins' ) ) {
+			wp_send_json_error( __( 'Permission denied.', 'sudowp-hub' ) );
+		}
+
+		$user_id  = get_current_user_id();
+		$rate_key = 'sudowp_rl_updates_' . $user_id;
+		if ( get_transient( $rate_key ) ) {
+			wp_send_json_error( __( 'Please wait before checking again.', 'sudowp-hub' ) );
+		}
+		set_transient( $rate_key, 1, $this->rate_limit_window );
+
+		// Clear cached data to force a fresh fetch.
+		delete_transient( 'sudowp_hub_update_data' );
+		delete_transient( 'sudowp_hub_org_repos' );
+
+		$data = $this->get_sudowp_update_data( true );
+
+		wp_send_json_success( array( 'count' => count( $data ) ) );
+	}
+
+	// -------------------------------------------------------------------------
+	// Updates: Page Render
+	// -------------------------------------------------------------------------
+
+	/**
+	 * Render the Updates admin page.
+	 */
+	public function render_updates_page() {
+		$update_data = $this->get_sudowp_update_data();
+		$updates_available = array_filter( $update_data, function ( $item ) {
+			return $item['has_update'];
+		} );
+		?>
+		<div class="wrap">
+			<h1 class="wp-heading-inline"><?php esc_html_e( 'SudoWP Updates', 'sudowp-hub' ); ?></h1>
+
+			<p class="description">
+				<?php esc_html_e( 'Shows installed SudoWP plugins and their update status compared to GitHub.', 'sudowp-hub' ); ?>
+			</p>
+
+			<p>
+				<button type="button" id="sudowp-check-updates" class="button button-secondary">
+					<?php esc_html_e( 'Check for Updates', 'sudowp-hub' ); ?>
+				</button>
+			</p>
+
+			<hr class="wp-header-end">
+
+			<?php if ( empty( $update_data ) ) : ?>
+				<div class="notice notice-info">
+					<p><?php esc_html_e( 'No SudoWP plugins are currently installed, or the GitHub API could not be reached. Click "Check for Updates" to try again.', 'sudowp-hub' ); ?></p>
+				</div>
+			<?php else : ?>
+				<?php if ( ! empty( $updates_available ) ) : ?>
+					<div class="notice notice-warning">
+						<p>
+							<?php
+							printf(
+								/* translators: %d: number of plugins with updates */
+								esc_html( _n(
+									'%d SudoWP plugin has an update available.',
+									'%d SudoWP plugins have updates available.',
+									count( $updates_available ),
+									'sudowp-hub'
+								) ),
+								count( $updates_available )
+							);
+							?>
+						</p>
+					</div>
+				<?php endif; ?>
+
+				<table class="widefat striped">
+					<thead>
+						<tr>
+							<th><?php esc_html_e( 'Plugin', 'sudowp-hub' ); ?></th>
+							<th><?php esc_html_e( 'Installed Version', 'sudowp-hub' ); ?></th>
+							<th><?php esc_html_e( 'Latest Version', 'sudowp-hub' ); ?></th>
+							<th><?php esc_html_e( 'Status', 'sudowp-hub' ); ?></th>
+						</tr>
+					</thead>
+					<tbody>
+						<?php foreach ( $update_data as $plugin ) : ?>
+							<tr>
+								<td>
+									<a href="<?php echo esc_url( $plugin['repo_url'] ); ?>" target="_blank" rel="noopener noreferrer">
+										<strong><?php echo esc_html( $plugin['name'] ); ?></strong>
+									</a>
+								</td>
+								<td><?php echo esc_html( $plugin['installed_version'] ); ?></td>
+								<td>
+									<?php
+									if ( false === $plugin['latest_version'] ) {
+										esc_html_e( 'No release tag', 'sudowp-hub' );
+									} else {
+										echo esc_html( $plugin['latest_version'] );
+									}
+									?>
+								</td>
+								<td>
+									<?php if ( $plugin['has_update'] ) : ?>
+										<span style="color:#d63638;font-weight:600;">
+											<?php esc_html_e( 'Update available', 'sudowp-hub' ); ?>
+										</span>
+									<?php elseif ( false === $plugin['latest_version'] ) : ?>
+										<span style="color:#996800;">
+											<?php esc_html_e( 'No tags found', 'sudowp-hub' ); ?>
+										</span>
+									<?php else : ?>
+										<span style="color:#00a32a;">
+											<?php esc_html_e( 'Up to date', 'sudowp-hub' ); ?>
+										</span>
+									<?php endif; ?>
+								</td>
+							</tr>
+						<?php endforeach; ?>
+					</tbody>
+				</table>
+			<?php endif; ?>
+
+			<?php
+			$timeout = get_option( '_transient_timeout_sudowp_hub_update_data' );
+			if ( $timeout ) {
+				$cached_since = (int) $timeout - $this->update_cache_ttl;
+				printf(
+					'<p class="description" style="margin-top:12px;">%s</p>',
+					esc_html(
+						sprintf(
+							/* translators: %s: human-readable time difference */
+							__( 'Last checked: %s ago', 'sudowp-hub' ),
+							human_time_diff( $cached_since, time() )
+						)
+					)
+				);
+			}
+			?>
+		</div>
+		<?php
+	}
+
+	// -------------------------------------------------------------------------
+	// Updates: Inline JS
+	// -------------------------------------------------------------------------
+
+	/**
+	 * Return the inline JS for the Updates page.
+	 *
+	 * @return string
+	 */
+	private function get_updates_inline_js() {
+		return <<<'JS'
+(function($) {
+	'use strict';
+	var hub = SudoWPHubUpdates;
+
+	$('#sudowp-check-updates').on('click', function(e) {
+		e.preventDefault();
+		var $btn = $(this);
+		$btn.prop('disabled', true).text(hub.i18n.checking);
+
+		$.post(hub.ajaxUrl, {
+			action: 'sudowp_hub_check_updates',
+			_nonce: hub.nonce
+		})
+		.always(function() {
+			window.location.reload();
+		});
+	});
+}(jQuery));
+JS;
 	}
 
 }

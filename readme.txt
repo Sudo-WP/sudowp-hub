@@ -3,7 +3,7 @@ Contributors: sudowp
 Tags: github, installer, security, patch, maintenance, abandoned-plugins
 Requires at least: 6.0
 Tested up to: 6.7
-Stable tag: 1.2.1
+Stable tag: 1.3.0
 License: GPLv2 or later
 License URI: http://www.gnu.org/licenses/gpl-2.0.html
 
@@ -54,6 +54,13 @@ Yes. SudoWP Hub only searches and installs software from the **Sudo-WP** organiz
 To reduce GitHub API calls and improve performance. Results are cached for 5 minutes per unique search term and type. Caches are stored as WordPress transients and are automatically cleared by WordPress.
 
 == Changelog ==
+
+= 1.3.0 =
+* Feature: New "Updates" submenu page showing installed SudoWP plugins with their update status compared to GitHub.
+* Feature: Automatic version comparison between installed plugin headers and latest GitHub tags.
+* Feature: "Check for Updates" button with rate limiting and 12-hour transient cache.
+* Feature: Update count badge on the menu item when updates are pending.
+* Refactor: Extracted shared GitHub API request args into reusable get_github_api_args() method.
 
 = 1.2.1 =
 * Security: Type-aware capability check (install_themes vs install_plugins) on search and install handlers.
