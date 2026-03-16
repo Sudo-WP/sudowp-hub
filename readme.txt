@@ -3,7 +3,7 @@ Contributors: sudowp
 Tags: github, installer, security, patch, maintenance, abandoned-plugins
 Requires at least: 6.0
 Tested up to: 6.7
-Stable tag: 1.1.1
+Stable tag: 1.2.0
 License: GPLv2 or later
 License URI: http://www.gnu.org/licenses/gpl-2.0.html
 
@@ -55,8 +55,14 @@ To reduce GitHub API calls and improve performance. Results are cached for 5 min
 
 == Changelog ==
 
+= 1.2.0 =
+* Renamed admin menu item and page title from "SudoWP Store" to "SudoWP Hub".
+* Feature: Plugin cards now show installed state. Installed and active plugins show an "Active" badge. Installed but inactive plugins show an "Activate" button linking to the plugins screen. Uninstalled plugins continue to show "Install Now".
+* Feature: Theme cards use the same installed-state detection. Installed and active themes show "Active". Installed but inactive themes show "Activate" linking to the themes screen.
+* Refactor: GitHub API search results are now cached as raw item arrays rather than rendered HTML, so installed-state detection always reflects the current install/active state rather than the state at cache-fill time.
+
 = 1.1.1 =
-* Removed unused $query variable in ajax_search() identified during Phase 5a code review (cosmetic dead code, no functional impact).
+* Removed unused $query variable in ajax_search() identified during Session 5a code review (cosmetic dead code, no functional impact).
 
 = 1.1.0 =
 * Security: Added `install_plugins` capability check to AJAX search handler.

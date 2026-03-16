@@ -3,7 +3,7 @@
  * Plugin Name: SudoWP Hub
  * Plugin URI:  https://sudowp.com
  * Description: Connects to the SudoWP GitHub organization to search and install patched security plugins and themes directly.
- * Version:     1.1.1
+ * Version:     1.2.0
  * Author:      SudoWP
  * Author URI:  https://sudowp.com
  * License:     GPLv2 or later
@@ -18,7 +18,7 @@ defined( 'ABSPATH' ) || exit;
  *
  * Security hardened per WordPress.org plugin guidelines and OWASP recommendations.
  *
- * @version 1.1.1
+ * @version 1.2.0
  */
 class SudoWP_Hub {
 
@@ -112,8 +112,8 @@ class SudoWP_Hub {
 	 */
 	public function register_menu_page() {
 		add_menu_page(
-			__( 'SudoWP Store', 'sudowp-hub' ),
-			__( 'SudoWP Store', 'sudowp-hub' ),
+			__( 'SudoWP Hub', 'sudowp-hub' ),
+			__( 'SudoWP Hub', 'sudowp-hub' ),
 			'install_plugins',
 			'sudowp-hub',
 			array( $this, 'render_page' ),
@@ -230,7 +230,7 @@ class SudoWP_Hub {
 			'sudowp-hub-admin',
 			'', // Inline only; no external file needed for v1.
 			array( 'jquery' ),
-			'1.1.1',
+			'1.2.0',
 			true
 		);
 
@@ -379,7 +379,7 @@ JS;
 		}
 		?>
 		<div class="wrap">
-			<h1 class="wp-heading-inline"><?php esc_html_e( 'SudoWP Store', 'sudowp-hub' ); ?></h1>
+			<h1 class="wp-heading-inline"><?php esc_html_e( 'SudoWP Hub', 'sudowp-hub' ); ?></h1>
 			<p class="description">
 				<?php esc_html_e( 'Search and install patched plugins/themes directly from the SudoWP GitHub Organization.', 'sudowp-hub' ); ?>
 			</p>
@@ -464,11 +464,11 @@ JS;
 			$type = 'plugin';
 		}
 
-		// 5. Check cache.
-		$cache_key = 'sudowp_search_' . md5( $this->github_org . '|' . $term . '|' . $type );
-		$cached    = get_transient( $cache_key );
-		if ( false !== $cached ) {
-			wp_send_json_success( $cached );
+		// 5. Check cache — stores raw items, not rendered HTML.
+		$cache_key     = 'sudowp_search_' . md5( $this->github_org . '|' . $term . '|' . $type );
+		$cached_items  = get_transient( $cache_key );
+		if ( false !== $cached_items && is_array( $cached_items ) ) {
+			wp_send_json_success( $this->build_results_html( $cached_items, $type ) );
 		}
 
 		// 6. Fetch from GitHub API.
@@ -518,17 +518,64 @@ JS;
 			wp_send_json_error( __( 'Unexpected response from GitHub API.', 'sudowp-hub' ) );
 		}
 
-		// 7. Build HTML output.
-		$html = $this->build_results_html( $body['items'], $type );
+		// 7. Cache the raw items array — not the rendered HTML — so installed-state
+		// detection always runs fresh against the current install/active state.
+		set_transient( $cache_key, $body['items'], $this->cache_ttl );
 
-		// 8. Cache result.
-		set_transient( $cache_key, $html, $this->cache_ttl );
+		// 8. Build HTML output (always fresh, never cached).
+		$html = $this->build_results_html( $body['items'], $type );
 
 		wp_send_json_success( $html );
 	}
 
 	/**
+	 * Return a map of installed plugin slugs to their status.
+	 * Keys are folder slugs (e.g. 'sudowp-log-viewer'). Values: 'active' or 'inactive'.
+	 *
+	 * @return array<string, string>
+	 */
+	private function get_installed_plugins_map() {
+		if ( ! function_exists( 'get_plugins' ) ) {
+			require_once ABSPATH . 'wp-admin/includes/plugin.php';
+		}
+
+		$all_plugins = get_plugins();
+		$active      = get_option( 'active_plugins', array() );
+		$map         = array();
+
+		foreach ( array_keys( $all_plugins ) as $plugin_file ) {
+			// plugin_file format: 'folder/file.php' or 'file.php' for single-file plugins.
+			$folder = strpos( $plugin_file, '/' ) !== false
+				? explode( '/', $plugin_file )[0]
+				: pathinfo( $plugin_file, PATHINFO_FILENAME );
+
+			$map[ $folder ] = in_array( $plugin_file, $active, true ) ? 'active' : 'inactive';
+		}
+
+		return $map;
+	}
+
+	/**
+	 * Return a map of installed theme slugs to their status.
+	 * Keys are stylesheet slugs. Values: 'active' or 'inactive'.
+	 *
+	 * @return array<string, string>
+	 */
+	private function get_installed_themes_map() {
+		$active_theme = get_option( 'stylesheet' );
+		$map          = array();
+
+		foreach ( array_keys( wp_get_themes() ) as $stylesheet ) {
+			$map[ $stylesheet ] = ( $stylesheet === $active_theme ) ? 'active' : 'inactive';
+		}
+
+		return $map;
+	}
+
+	/**
 	 * Build the plugin-card HTML from a list of GitHub repo items.
+	 * Installed-state detection is done fresh on every call (not cached)
+	 * so that the card correctly reflects the current install/active state.
 	 *
 	 * @param array  $items GitHub API items array.
 	 * @param string $type  'plugin' or 'theme'.
@@ -538,6 +585,11 @@ JS;
 		if ( empty( $items ) ) {
 			return '<p>' . esc_html__( 'No patched components found matching that name.', 'sudowp-hub' ) . '</p>';
 		}
+
+		// Fetch installed state once for the whole list.
+		$installed_map = ( 'theme' === $type )
+			? $this->get_installed_themes_map()
+			: $this->get_installed_plugins_map();
 
 		$date_format = get_option( 'date_format' );
 		ob_start();
@@ -571,6 +623,31 @@ JS;
 				rawurlencode( $name ),
 				rawurlencode( $branch )
 			);
+
+			// Determine install status for this repo slug.
+			$install_status = $installed_map[ $name ] ?? 'not_installed';
+
+			// Build the action button based on install status.
+			if ( 'active' === $install_status ) {
+				$action_button = '<a class="button button-disabled" disabled="disabled">'
+					. esc_html__( 'Active', 'sudowp-hub' )
+					. '</a>';
+			} elseif ( 'inactive' === $install_status ) {
+				$activate_url = ( 'theme' === $type )
+					? admin_url( 'themes.php' )
+					: admin_url( 'plugins.php' );
+				$action_button = '<a class="button button-primary" href="' . esc_url( $activate_url ) . '">'
+					. esc_html__( 'Activate', 'sudowp-hub' )
+					. '</a>';
+			} else {
+				$action_button = '<a class="install-now button sudowp-install-now"'
+					. ' data-slug="' . esc_attr( $name ) . '"'
+					. ' data-zip="' . esc_attr( $zip_url ) . '"'
+					. ' data-type="' . esc_attr( $type ) . '"'
+					. ' href="#">'
+					. esc_html__( 'Install Now', 'sudowp-hub' )
+					. '</a>';
+			}
 			?>
 			<div class="plugin-card">
 				<div class="plugin-card-top">
@@ -583,13 +660,7 @@ JS;
 					</div>
 					<div class="action-links">
 						<ul class="plugin-action-buttons">
-							<li>
-								<a class="install-now button sudowp-install-now"
-								   data-slug="<?php echo esc_attr( $name ); ?>"
-								   data-zip="<?php echo esc_attr( $zip_url ); ?>"
-								   data-type="<?php echo esc_attr( $type ); ?>"
-								   href="#"><?php esc_html_e( 'Install Now', 'sudowp-hub' ); ?></a>
-							</li>
+							<li><?php echo $action_button; // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- escaped per branch above ?></li>
 							<li>
 								<a href="<?php echo esc_url( $html_url ); ?>" target="_blank" rel="noopener noreferrer">
 									<?php esc_html_e( 'More Details', 'sudowp-hub' ); ?>
