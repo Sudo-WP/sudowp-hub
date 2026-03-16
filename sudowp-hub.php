@@ -3,7 +3,7 @@
  * Plugin Name: SudoWP Hub
  * Plugin URI:  https://sudowp.com
  * Description: Connects to the SudoWP GitHub organization to search and install patched security plugins and themes directly.
- * Version:     1.4.1
+ * Version:     1.5.0
  * Author:      SudoWP
  * Author URI:  https://sudowp.com
  * License:     GPLv2 or later
@@ -19,7 +19,7 @@ defined( 'ABSPATH' ) || exit;
  *
  * Security hardened per WordPress.org plugin guidelines and OWASP recommendations.
  *
- * @version 1.4.1
+ * @version 1.5.0
  */
 class SudoWP_Hub {
 
@@ -103,6 +103,10 @@ class SudoWP_Hub {
 
 		// Add "SudoWP Updates" tab to the native Plugins list table.
 		add_filter( 'views_plugins', array( $this, 'add_updates_tab_to_plugins' ) );
+
+		// Background update check via wp-cron.
+		add_action( 'sudowp_hub_daily_update_check', array( $this, 'run_scheduled_update_check' ) );
+		add_action( 'admin_init', array( $this, 'ensure_cron_scheduled' ) );
 	}
 
 	/**
@@ -291,7 +295,7 @@ class SudoWP_Hub {
 				'sudowp-hub-updates',
 				'',
 				array( 'jquery' ),
-				'1.4.0',
+				'1.5.0',
 				true
 			);
 
@@ -330,7 +334,7 @@ class SudoWP_Hub {
 			'sudowp-hub-admin',
 			'', // Inline only; no external file needed for v1.
 			array( 'jquery' ),
-			'1.4.0',
+			'1.5.0',
 			true
 		);
 
@@ -1048,6 +1052,31 @@ JS;
 	}
 
 	// -------------------------------------------------------------------------
+	// Updates: Scheduled Background Check
+	// -------------------------------------------------------------------------
+
+	/**
+	 * Run the background update check via wp-cron.
+	 * Mirrors how WordPress core refreshes its own update data: delete stale
+	 * cache, then repopulate. No output, no return value.
+	 */
+	public function run_scheduled_update_check() {
+		delete_transient( 'sudowp_hub_update_data' );
+		delete_transient( 'sudowp_hub_org_repos' );
+		$this->get_sudowp_update_data( true );
+	}
+
+	/**
+	 * Ensure the daily cron event is scheduled.
+	 * Self-heals if the event was lost (e.g. database restore, cron table cleared).
+	 */
+	public function ensure_cron_scheduled() {
+		if ( ! wp_next_scheduled( 'sudowp_hub_daily_update_check' ) ) {
+			wp_schedule_event( time(), 'daily', 'sudowp_hub_daily_update_check' );
+		}
+	}
+
+	// -------------------------------------------------------------------------
 	// Updates: Data Layer
 	// -------------------------------------------------------------------------
 
@@ -1605,6 +1634,23 @@ JS;
 					)
 				);
 			}
+			$next = wp_next_scheduled( 'sudowp_hub_daily_update_check' );
+			if ( $next ) {
+				printf(
+					'<p class="description">%s</p>',
+					esc_html(
+						sprintf(
+							/* translators: %s: human-readable time difference */
+							__( 'Next automatic check: in %s', 'sudowp-hub' ),
+							human_time_diff( time(), $next )
+						)
+					)
+				);
+			} else {
+				echo '<p class="description">'
+					. esc_html__( 'Automatic daily check: not scheduled. Deactivate and reactivate the plugin to restore it.', 'sudowp-hub' )
+					. '</p>';
+			}
 			?>
 		</div>
 		<?php
@@ -1741,5 +1787,20 @@ JS;
 	}
 
 }
+
+// Schedule daily background update check on activation.
+register_activation_hook( __FILE__, function () {
+	if ( ! wp_next_scheduled( 'sudowp_hub_daily_update_check' ) ) {
+		wp_schedule_event( time(), 'daily', 'sudowp_hub_daily_update_check' );
+	}
+} );
+
+// Clear the scheduled event on deactivation.
+register_deactivation_hook( __FILE__, function () {
+	$timestamp = wp_next_scheduled( 'sudowp_hub_daily_update_check' );
+	if ( $timestamp ) {
+		wp_unschedule_event( $timestamp, 'sudowp_hub_daily_update_check' );
+	}
+} );
 
 SudoWP_Hub::get_instance();
