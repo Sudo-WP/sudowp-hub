@@ -3,7 +3,7 @@
  * Plugin Name: SudoWP Hub
  * Plugin URI:  https://sudowp.com
  * Description: Connects to the SudoWP GitHub organization to search and install patched security plugins and themes directly.
- * Version:     1.2.0
+ * Version:     1.2.1
  * Author:      SudoWP
  * Author URI:  https://sudowp.com
  * License:     GPLv2 or later
@@ -19,7 +19,7 @@ defined( 'ABSPATH' ) || exit;
  *
  * Security hardened per WordPress.org plugin guidelines and OWASP recommendations.
  *
- * @version 1.2.0
+ * @version 1.2.1
  */
 class SudoWP_Hub {
 
@@ -740,12 +740,12 @@ JS;
 		$url  = isset( $_POST['repo_url'] ) ? esc_url_raw( wp_unslash( $_POST['repo_url'] ) ) : '';
 		$slug = isset( $_POST['slug'] )     ? sanitize_text_field( wp_unslash( $_POST['slug'] ) ) : '';
 
-		// 5. Strict URL validation (SSRF prevention).
+		// 6. Strict URL validation (SSRF prevention).
 		if ( ! $this->validate_github_url( $url, $slug ) ) {
 			wp_send_json_error( __( 'Invalid repository URL. Only SudoWP GitHub repositories are allowed.', 'sudowp-hub' ) );
 		}
 
-		// 6. Load upgrader dependencies.
+		// 7. Load upgrader dependencies.
 		require_once ABSPATH . 'wp-admin/includes/class-wp-upgrader.php';
 		require_once ABSPATH . 'wp-admin/includes/file.php';
 		require_once ABSPATH . 'wp-admin/includes/misc.php';
@@ -758,7 +758,7 @@ JS;
 			$upgrader = new Plugin_Upgrader( $skin );
 		}
 
-		// 7. Store slug for rename filter (cleared immediately after).
+		// 8. Store slug for rename filter (cleared immediately after).
 		$this->current_install_slug = $slug;
 		add_filter( 'upgrader_source_selection', array( $this, 'rename_github_source' ), 10, 3 );
 
@@ -767,7 +767,7 @@ JS;
 		remove_filter( 'upgrader_source_selection', array( $this, 'rename_github_source' ) );
 		$this->current_install_slug = null;
 
-		// 8. Evaluate result.
+		// 9. Evaluate result.
 		if ( is_wp_error( $result ) ) {
 			wp_send_json_error( $result->get_error_message() );
 		}

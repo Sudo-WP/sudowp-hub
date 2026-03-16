@@ -3,7 +3,7 @@ Contributors: sudowp
 Tags: github, installer, security, patch, maintenance, abandoned-plugins
 Requires at least: 6.0
 Tested up to: 6.7
-Stable tag: 1.2.0
+Stable tag: 1.2.1
 License: GPLv2 or later
 License URI: http://www.gnu.org/licenses/gpl-2.0.html
 
@@ -54,6 +54,12 @@ Yes. SudoWP Hub only searches and installs software from the **Sudo-WP** organiz
 To reduce GitHub API calls and improve performance. Results are cached for 5 minutes per unique search term and type. Caches are stored as WordPress transients and are automatically cleared by WordPress.
 
 == Changelog ==
+
+= 1.2.1 =
+* Security: Type-aware capability check (install_themes vs install_plugins) on search and install handlers.
+* Security: Applied wp_kses_post output escaping on rendered card HTML.
+* Security: Applied wp_unslash on all POST data access.
+* Security: Added uninstall.php with token and transient cleanup on plugin deletion.
 
 = 1.2.0 =
 * Renamed admin menu item and page title from "SudoWP Store" to "SudoWP Hub".
