@@ -9,6 +9,7 @@
  * License:     GPLv2 or later
  * Text Domain: sudowp-hub
  * Domain Path: /languages
+ * Requires PHP: 7.4
  */
 
 defined( 'ABSPATH' ) || exit;
@@ -164,7 +165,7 @@ class SudoWP_Hub {
 
 		// Check if the admin deliberately cleared the field
 		// (sentinel field is sent when the form was rendered with an existing token).
-		$clearing = isset( $_POST['sudowp_hub_clear_token'] ) && '1' === $_POST['sudowp_hub_clear_token'];
+		$clearing = isset( $_POST['sudowp_hub_clear_token'] ) && '1' === wp_unslash( $_POST['sudowp_hub_clear_token'] );
 
 		if ( '' === trim( $token ) ) {
 			// Empty submission: clear only if sentinel says there was a token.
@@ -660,7 +661,7 @@ JS;
 					</div>
 					<div class="action-links">
 						<ul class="plugin-action-buttons">
-							<li><?php echo $action_button; // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- escaped per branch above ?></li>
+							<li><?php echo wp_kses_post($action_button); ?></li>
 							<li>
 								<a href="<?php echo esc_url( $html_url ); ?>" target="_blank" rel="noopener noreferrer">
 									<?php esc_html_e( 'More Details', 'sudowp-hub' ); ?>
@@ -715,12 +716,19 @@ JS;
 		// 1. Verify nonce.
 		check_ajax_referer( 'sudowp_install', '_nonce' );
 
-		// 2. Capability check.
-		if ( ! current_user_can( 'install_plugins' ) ) {
+		// 2. Determine type early for capability check.
+		$type = isset( $_POST['type'] )     ? sanitize_key( $_POST['type'] ) : 'plugin';
+		if ( ! in_array( $type, array( 'plugin', 'theme' ), true ) ) {
+			$type = 'plugin';
+		}
+
+		// 3. Capability check.
+		$required_cap = ($type === 'theme') ? 'install_themes' : 'install_plugins';
+		if (!current_user_can($required_cap)) {
 			wp_send_json_error( __( 'Permission denied.', 'sudowp-hub' ) );
 		}
 
-		// 3. Rate limit: one install per window per user.
+		// 4. Rate limit: one install per window per user.
 		$user_id  = get_current_user_id();
 		$rate_key = 'sudowp_rl_install_' . $user_id;
 		if ( get_transient( $rate_key ) ) {
@@ -728,14 +736,9 @@ JS;
 		}
 		set_transient( $rate_key, 1, $this->rate_limit_window );
 
-		// 4. Sanitize input.
+		// 5. Sanitize input.
 		$url  = isset( $_POST['repo_url'] ) ? esc_url_raw( wp_unslash( $_POST['repo_url'] ) ) : '';
 		$slug = isset( $_POST['slug'] )     ? sanitize_text_field( wp_unslash( $_POST['slug'] ) ) : '';
-		$type = isset( $_POST['type'] )     ? sanitize_key( $_POST['type'] ) : 'plugin';
-
-		if ( ! in_array( $type, array( 'plugin', 'theme' ), true ) ) {
-			$type = 'plugin';
-		}
 
 		// 5. Strict URL validation (SSRF prevention).
 		if ( ! $this->validate_github_url( $url, $slug ) ) {
