@@ -3,7 +3,7 @@
  * Plugin Name: SudoWP Hub
  * Plugin URI:  https://sudowp.com
  * Description: Connects to the SudoWP GitHub organization to search and install patched security plugins and themes directly.
- * Version:     1.1.0
+ * Version:     1.1.1
  * Author:      SudoWP
  * Author URI:  https://sudowp.com
  * License:     GPLv2 or later
@@ -18,7 +18,7 @@ defined( 'ABSPATH' ) || exit;
  *
  * Security hardened per WordPress.org plugin guidelines and OWASP recommendations.
  *
- * @version 1.1.0
+ * @version 1.1.1
  */
 class SudoWP_Hub {
 
@@ -230,7 +230,7 @@ class SudoWP_Hub {
 			'sudowp-hub-admin',
 			'', // Inline only; no external file needed for v1.
 			array( 'jquery' ),
-			'1.1.0',
+			'1.1.1',
 			true
 		);
 
@@ -472,7 +472,6 @@ JS;
 		}
 
 		// 6. Fetch from GitHub API.
-		$query    = 'org:' . rawurlencode( $this->github_org ) . ' ' . rawurlencode( $term );
 		$api_url  = add_query_arg(
 			array(
 				'q'        => 'org:' . $this->github_org . ' ' . $term,
