@@ -3,7 +3,7 @@ Contributors: sudowp
 Tags: github, installer, security, patch, maintenance, abandoned-plugins
 Requires at least: 6.0
 Tested up to: 6.7
-Stable tag: 1.3.0
+Stable tag: 1.4.0
 License: GPLv2 or later
 License URI: http://www.gnu.org/licenses/gpl-2.0.html
 
@@ -55,6 +55,15 @@ To reduce GitHub API calls and improve performance. Results are cached for 5 min
 
 == Changelog ==
 
+= 1.4.0 =
+* Feature: Rewritten Updates page with per-row "Update now" links and bulk "Update Selected" functionality.
+* Feature: Updates tab moved to native Plugins list table via views_plugins filter, with pending count badge.
+* Feature: New ajax_run_updates() AJAX handler with nonce, capability, and 30-second rate limiting.
+* Feature: Tag-based ZIP URL construction for updates, with new validate_github_tag_url() validation method.
+* Enhancement: get_repo_latest_version() now returns raw tag name alongside stripped version for accurate ZIP URLs.
+* Enhancement: Updates page layout mirrors wp-admin/update-core.php with form, checkboxes, and status columns.
+* UX: Inline per-row status feedback during single and bulk update operations.
+
 = 1.3.0 =
 * Feature: New "Updates" submenu page showing installed SudoWP plugins with their update status compared to GitHub.
 * Feature: Automatic version comparison between installed plugin headers and latest GitHub tags.
@@ -79,14 +88,14 @@ To reduce GitHub API calls and improve performance. Results are cached for 5 min
 
 = 1.1.0 =
 * Security: Added `install_plugins` capability check to AJAX search handler.
-* Security: Nonces now passed via `wp_localize_script()` — no longer embedded as string literals in inline JS.
+* Security: Nonces now passed via `wp_localize_script()` - no longer embedded as string literals in inline JS.
 * Security: GitHub Authorization header updated from deprecated `token` prefix to `Bearer`.
 * Security: Strict validation of all GitHub API response fields before rendering.
-* Security: ZIP URLs constructed server-side from validated parts — client-supplied URL is re-validated before install.
+* Security: ZIP URLs constructed server-side from validated parts - client-supplied URL is re-validated before install.
 * Security: `rename_github_source` now returns a `WP_Error` on failure instead of silently returning the original path.
 * Security: `validate_github_url` now also blocks URLs containing query strings, fragments, or credentials.
 * Fix: GitHub token can now be cleared by submitting an empty field (with sentinel field logic).
-* Fix: Token sanitization strengthened — only alphanumeric + `-` + `_` characters accepted.
+* Fix: Token sanitization strengthened - only alphanumeric + `-` + `_` characters accepted.
 * Performance: Search results cached as WordPress transients for 5 minutes.
 * Performance: Removed unnecessary `plugin-install` and `updates` script dependencies; plugin now registers its own handle.
 * Performance: GitHub API query now requests up to 100 results per page.
