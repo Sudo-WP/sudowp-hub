@@ -143,13 +143,22 @@ class SudoWP_Hub {
 			'sudowp-hub'
 		);
 
-		// Register the Updates page with null parent so it does not appear in the sidebar.
-		// The page is accessible via admin.php?page=sudowp-hub-updates and linked
-		// from the native Plugins list table via the views_plugins filter.
+		// Add "Updates" submenu under the Hub menu.
+		// Also linked from the native Plugins list table via the views_plugins filter.
+		$updates_count = $this->get_pending_update_count();
+		$updates_label = __( 'Updates', 'sudowp-hub' );
+		if ( $updates_count > 0 ) {
+			$updates_label .= sprintf(
+				' <span class="update-plugins count-%d"><span class="plugin-count">%d</span></span>',
+				$updates_count,
+				$updates_count
+			);
+		}
+
 		add_submenu_page(
-			null,
+			'sudowp-hub',
 			__( 'SudoWP Updates', 'sudowp-hub' ),
-			__( 'Updates', 'sudowp-hub' ),
+			$updates_label,
 			'update_plugins',
 			'sudowp-hub-updates',
 			array( $this, 'render_updates_page' )
@@ -277,7 +286,7 @@ class SudoWP_Hub {
 	 */
 	public function enqueue_assets( $hook ) {
 		// Updates page assets.
-		if ( 'admin_page_sudowp-hub-updates' === $hook ) {
+		if ( 'sudowp-hub_page_sudowp-hub-updates' === $hook ) {
 			wp_register_script(
 				'sudowp-hub-updates',
 				'',
