@@ -3,7 +3,7 @@
  * Plugin Name: SudoWP Hub
  * Plugin URI:  https://sudowp.com
  * Description: Connects to the SudoWP GitHub organization to search and install patched security plugins and themes directly.
- * Version:     1.5.3
+ * Version:     1.5.4
  * Author:      SudoWP
  * Author URI:  https://sudowp.com
  * License:     GPLv2 or later
@@ -19,7 +19,7 @@ defined( 'ABSPATH' ) || exit;
  *
  * Security hardened per WordPress.org plugin guidelines and OWASP recommendations.
  *
- * @version 1.5.3
+ * @version 1.5.4
  */
 class SudoWP_Hub {
 
@@ -295,7 +295,7 @@ class SudoWP_Hub {
 				'sudowp-hub-updates',
 				'',
 				array( 'jquery' ),
-				'1.5.0',
+				'1.5.4',
 				true
 			);
 
@@ -334,7 +334,7 @@ class SudoWP_Hub {
 			'sudowp-hub-admin',
 			'', // Inline only; no external file needed for v1.
 			array( 'jquery' ),
-			'1.5.0',
+			'1.5.4',
 			true
 		);
 
@@ -1061,9 +1061,26 @@ JS;
 	 * cache, then repopulate. No output, no return value.
 	 */
 	public function run_scheduled_update_check() {
+		$this->clear_all_update_caches();
+		$this->get_sudowp_update_data( true );
+	}
+
+	/**
+	 * Clear all update-related transient caches including per-slug tag caches.
+	 */
+	private function clear_all_update_caches() {
 		delete_transient( 'sudowp_hub_update_data' );
 		delete_transient( 'sudowp_hub_org_repos' );
-		$this->get_sudowp_update_data( true );
+
+		// Clear per-slug tag caches.
+		global $wpdb;
+		$wpdb->query(
+			$wpdb->prepare(
+				"DELETE FROM {$wpdb->options} WHERE option_name LIKE %s OR option_name LIKE %s",
+				$wpdb->esc_like( '_transient_sudowp_tag_' ) . '%',
+				$wpdb->esc_like( '_transient_timeout_sudowp_tag_' ) . '%'
+			)
+		);
 	}
 
 	/**
@@ -1181,6 +1198,14 @@ JS;
 	 * @return array{raw: string, version: string}|false
 	 */
 	private function get_repo_latest_version( $repo_slug ) {
+		// Check per-slug cache first to avoid redundant API calls.
+		$slug_cache_key = 'sudowp_tag_' . md5( $repo_slug );
+		$cached_tag     = get_transient( $slug_cache_key );
+		if ( false !== $cached_tag ) {
+			// Cached value is either the tag array or 'none' (no tags found).
+			return 'none' === $cached_tag ? false : $cached_tag;
+		}
+
 		// Fetch up to 20 tags and find the highest by semver.
 		// GitHub returns tags sorted by creation date, not version number,
 		// so per_page=1 would return the most recently created tag, not the
@@ -1194,12 +1219,15 @@ JS;
 		$response = wp_remote_get( $url, $this->get_github_api_args() );
 
 		if ( is_wp_error( $response ) || 200 !== wp_remote_retrieve_response_code( $response ) ) {
+			// Do not cache API failures so the next page load retries.
 			return false;
 		}
 
 		$body = json_decode( wp_remote_retrieve_body( $response ), true );
 
 		if ( ! is_array( $body ) || empty( $body ) ) {
+			// Cache "no tags" to avoid re-fetching repos that genuinely have no tags.
+			set_transient( $slug_cache_key, 'none', $this->update_cache_ttl );
 			return false;
 		}
 
@@ -1226,13 +1254,19 @@ JS;
 		}
 
 		if ( null === $best_raw ) {
+			set_transient( $slug_cache_key, 'none', $this->update_cache_ttl );
 			return false;
 		}
 
-		return array(
+		$result = array(
 			'raw'     => $best_raw,
 			'version' => $best_version,
 		);
+
+		// Cache successful result for 12 hours.
+		set_transient( $slug_cache_key, $result, $this->update_cache_ttl );
+
+		return $result;
 	}
 
 	/**
@@ -1348,9 +1382,8 @@ JS;
 		}
 		set_transient( $rate_key, 1, $this->rate_limit_window );
 
-		// Clear cached data to force a fresh fetch.
-		delete_transient( 'sudowp_hub_update_data' );
-		delete_transient( 'sudowp_hub_org_repos' );
+		// Clear all cached data to force a fresh fetch.
+		$this->clear_all_update_caches();
 
 		$data = $this->get_sudowp_update_data( true );
 
@@ -1503,8 +1536,7 @@ JS;
 		// Clear cached update data only when at least one update succeeded,
 		// so a full API failure does not wipe the cache and leave the page blank.
 		if ( ! empty( $updated ) ) {
-			delete_transient( 'sudowp_hub_update_data' );
-			delete_transient( 'sudowp_hub_org_repos' );
+			$this->clear_all_update_caches();
 		}
 
 		wp_send_json_success( array(
