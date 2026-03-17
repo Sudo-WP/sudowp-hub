@@ -3,7 +3,7 @@ Contributors: sudowp
 Tags: github, installer, security, patch, maintenance, abandoned-plugins
 Requires at least: 6.0
 Tested up to: 6.7
-Stable tag: 1.5.4
+Stable tag: 1.5.5
 License: GPLv2 or later
 License URI: http://www.gnu.org/licenses/gpl-2.0.html
 
@@ -54,6 +54,10 @@ Yes. SudoWP Hub only searches and installs software from the **Sudo-WP** organiz
 To reduce GitHub API calls and improve performance. Results are cached for 5 minutes per unique search term and type. Caches are stored as WordPress transients and are automatically cleared by WordPress.
 
 == Changelog ==
+
+= 1.5.5 =
+* Fix: Rate-limited responses (HTTP 403/429) from GitHub tag API are now cached for 5 minutes, breaking the retry loop that exhausted the unauthenticated rate limit.
+* UX: Updates page shows a warning notice with a link to settings when no GitHub token is configured.
 
 = 1.5.4 =
 * Fix: Tag lookup now caches results per slug (12-hour transient), preventing rate-limit exhaustion when multiple SudoWP plugins are installed.

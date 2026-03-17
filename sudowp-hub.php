@@ -3,7 +3,7 @@
  * Plugin Name: SudoWP Hub
  * Plugin URI:  https://sudowp.com
  * Description: Connects to the SudoWP GitHub organization to search and install patched security plugins and themes directly.
- * Version:     1.5.4
+ * Version:     1.5.5
  * Author:      SudoWP
  * Author URI:  https://sudowp.com
  * License:     GPLv2 or later
@@ -19,7 +19,7 @@ defined( 'ABSPATH' ) || exit;
  *
  * Security hardened per WordPress.org plugin guidelines and OWASP recommendations.
  *
- * @version 1.5.4
+ * @version 1.5.5
  */
 class SudoWP_Hub {
 
@@ -295,7 +295,7 @@ class SudoWP_Hub {
 				'sudowp-hub-updates',
 				'',
 				array( 'jquery' ),
-				'1.5.4',
+				'1.5.5',
 				true
 			);
 
@@ -334,7 +334,7 @@ class SudoWP_Hub {
 			'sudowp-hub-admin',
 			'', // Inline only; no external file needed for v1.
 			array( 'jquery' ),
-			'1.5.4',
+			'1.5.5',
 			true
 		);
 
@@ -1202,8 +1202,11 @@ JS;
 		$slug_cache_key = 'sudowp_tag_' . md5( $repo_slug );
 		$cached_tag     = get_transient( $slug_cache_key );
 		if ( false !== $cached_tag ) {
-			// Cached value is either the tag array or 'none' (no tags found).
-			return 'none' === $cached_tag ? false : $cached_tag;
+			// Cached value is a tag array, 'none' (no tags), or 'rate_limited' (API throttled).
+			if ( 'none' === $cached_tag || 'rate_limited' === $cached_tag ) {
+				return false;
+			}
+			return $cached_tag;
 		}
 
 		// Fetch up to 20 tags and find the highest by semver.
@@ -1218,8 +1221,17 @@ JS;
 
 		$response = wp_remote_get( $url, $this->get_github_api_args() );
 
-		if ( is_wp_error( $response ) || 200 !== wp_remote_retrieve_response_code( $response ) ) {
-			// Do not cache API failures so the next page load retries.
+		if ( is_wp_error( $response ) ) {
+			return false;
+		}
+
+		$status_code = wp_remote_retrieve_response_code( $response );
+		if ( 200 !== $status_code ) {
+			// Cache rate-limit responses briefly (5 min) to break the retry loop.
+			// Other failures are not cached so the next page load retries immediately.
+			if ( 403 === $status_code || 429 === $status_code ) {
+				set_transient( $slug_cache_key, 'rate_limited', 300 );
+			}
 			return false;
 		}
 
@@ -1564,6 +1576,20 @@ JS;
 		<div class="wrap">
 			<h1 class="wp-heading-inline"><?php esc_html_e( 'SudoWP Updates', 'sudowp-hub' ); ?></h1>
 			<hr class="wp-header-end">
+
+			<?php if ( empty( get_option( 'sudowp_hub_gh_token', '' ) ) ) : ?>
+				<div class="notice notice-warning">
+					<p>
+						<?php
+						printf(
+							/* translators: %s: URL to the Hub settings page */
+							wp_kses_post( __( 'No GitHub token configured. Version checks are limited to 60 requests per hour without a token. <a href="%s">Add a token</a> to avoid rate limiting.', 'sudowp-hub' ) ),
+							esc_url( admin_url( 'admin.php?page=sudowp-hub#sudowp_hub_gh_token' ) )
+						);
+						?>
+					</p>
+				</div>
+			<?php endif; ?>
 
 			<?php if ( empty( $update_data ) ) : ?>
 				<div class="notice notice-info">
