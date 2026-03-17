@@ -3,7 +3,7 @@
  * Plugin Name: SudoWP Hub
  * Plugin URI:  https://sudowp.com
  * Description: Connects to the SudoWP GitHub organization to search and install patched security plugins and themes directly.
- * Version:     1.5.5
+ * Version:     1.5.6
  * Author:      SudoWP
  * Author URI:  https://sudowp.com
  * License:     GPLv2 or later
@@ -19,7 +19,7 @@ defined( 'ABSPATH' ) || exit;
  *
  * Security hardened per WordPress.org plugin guidelines and OWASP recommendations.
  *
- * @version 1.5.5
+ * @version 1.5.6
  */
 class SudoWP_Hub {
 
@@ -295,7 +295,7 @@ class SudoWP_Hub {
 				'sudowp-hub-updates',
 				'',
 				array( 'jquery' ),
-				'1.5.5',
+				'1.5.6',
 				true
 			);
 
@@ -334,7 +334,7 @@ class SudoWP_Hub {
 			'sudowp-hub-admin',
 			'', // Inline only; no external file needed for v1.
 			array( 'jquery' ),
-			'1.5.5',
+			'1.5.6',
 			true
 		);
 
@@ -1444,6 +1444,19 @@ JS;
 
 		// 5. Validate each slug against org repos.
 		$org_repos = $this->get_sudowp_org_repos();
+		if ( empty( $org_repos ) ) {
+			if ( ! function_exists( 'get_plugins' ) ) {
+				require_once ABSPATH . 'wp-admin/includes/plugin.php';
+			}
+			foreach ( array_keys( get_plugins() ) as $pf ) {
+				$folder = strpos( $pf, '/' ) !== false
+					? explode( '/', $pf )[0]
+					: pathinfo( $pf, PATHINFO_FILENAME );
+				if ( strpos( $folder, 'sudowp-' ) === 0 ) {
+					$org_repos[] = $folder;
+				}
+			}
+		}
 		$updated   = array();
 		$failed    = array();
 
