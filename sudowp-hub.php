@@ -3,7 +3,7 @@
  * Plugin Name: SudoWP Hub
  * Plugin URI:  https://sudowp.com
  * Description: Connects to the SudoWP GitHub organization to search and install patched security plugins and themes directly.
- * Version:     1.5.11
+ * Version:     1.5.12
  * Author:      SudoWP
  * Author URI:  https://sudowp.com
  * License:     GPLv2 or later
@@ -19,7 +19,7 @@ defined( 'ABSPATH' ) || exit;
  *
  * Security hardened per WordPress.org plugin guidelines and OWASP recommendations.
  *
- * @version 1.5.11
+ * @version 1.5.12
  */
 class SudoWP_Hub {
 
@@ -295,7 +295,7 @@ class SudoWP_Hub {
 				'sudowp-hub-updates',
 				'',
 				array( 'jquery' ),
-				'1.5.11',
+				'1.5.12',
 				true
 			);
 
@@ -334,7 +334,7 @@ class SudoWP_Hub {
 			'sudowp-hub-admin',
 			'', // Inline only; no external file needed for v1.
 			array( 'jquery' ),
-			'1.5.11',
+			'1.5.12',
 			true
 		);
 
@@ -1534,6 +1534,14 @@ JS;
 			);
 			set_site_transient( 'update_plugins', $update_plugins );
 
+			// Record activation state before upgrade. Plugin_Upgrader->upgrade()
+			// deactivates the plugin via its deactivate_plugin_before_upgrade
+			// filter but does not re-activate it. WordPress core's own AJAX
+			// update handler (wp_ajax_update_plugin) re-activates after upgrade;
+			// we must do the same.
+			$was_active       = is_plugin_active( $plugin_file );
+			$was_network_wide = is_multisite() && is_plugin_active_for_network( $plugin_file );
+
 			$this->current_install_slug = $slug;
 			add_filter( 'upgrader_source_selection', array( $this, 'rename_github_source' ), 10, 3 );
 
@@ -1562,6 +1570,11 @@ JS;
 				);
 			} else {
 				$updated[] = $plugin_file;
+
+				// Re-activate the plugin if it was active before the upgrade.
+				if ( $was_active ) {
+					activate_plugin( $plugin_file, '', $was_network_wide, true );
+				}
 			}
 		}
 
