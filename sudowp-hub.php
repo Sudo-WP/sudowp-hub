@@ -3,7 +3,7 @@
  * Plugin Name: SudoWP Hub
  * Plugin URI:  https://sudowp.com
  * Description: Connects to the SudoWP GitHub organization to search and install patched security plugins and themes directly.
- * Version:     1.5.10
+ * Version:     1.5.11
  * Author:      SudoWP
  * Author URI:  https://sudowp.com
  * License:     GPLv2 or later
@@ -19,7 +19,7 @@ defined( 'ABSPATH' ) || exit;
  *
  * Security hardened per WordPress.org plugin guidelines and OWASP recommendations.
  *
- * @version 1.5.10
+ * @version 1.5.11
  */
 class SudoWP_Hub {
 
@@ -295,7 +295,7 @@ class SudoWP_Hub {
 				'sudowp-hub-updates',
 				'',
 				array( 'jquery' ),
-				'1.5.10',
+				'1.5.11',
 				true
 			);
 
@@ -334,7 +334,7 @@ class SudoWP_Hub {
 			'sudowp-hub-admin',
 			'', // Inline only; no external file needed for v1.
 			array( 'jquery' ),
-			'1.5.10',
+			'1.5.11',
 			true
 		);
 
@@ -1037,23 +1037,11 @@ JS;
 
 		$new_source = trailingslashit( $remote_source ) . $this->current_install_slug . '/';
 
-		error_log( sprintf(
-			'[SudoWP Hub] rename_github_source: slug=%s | source=%s | new_source=%s | match=%s | fs_method=%s',
-			$this->current_install_slug,
-			$source,
-			$new_source,
-			$source === $new_source ? 'yes' : 'no',
-			get_class( $wp_filesystem )
-		) );
-
 		if ( $source === $new_source ) {
 			return $source; // Already correctly named.
 		}
 
-		$moved = $wp_filesystem->move( $source, $new_source );
-		error_log( '[SudoWP Hub] rename move result: ' . var_export( $moved, true ) );
-
-		if ( ! $moved ) {
+		if ( ! $wp_filesystem->move( $source, $new_source ) ) {
 			return new WP_Error(
 				'sudowp_rename_failed',
 				__( 'Could not rename the plugin folder. Check filesystem permissions.', 'sudowp-hub' )
@@ -1555,27 +1543,6 @@ JS;
 
 			remove_filter( 'upgrader_source_selection', array( $this, 'rename_github_source' ) );
 			$this->current_install_slug = null;
-
-			// --- Diagnostic logging (temporary, remove after confirming fix) ---
-			$diag = array(
-				'plugin_file' => $plugin_file,
-				'slug'        => $slug,
-				'zip_url'     => $zip_url,
-				'result_type' => gettype( $result ),
-				'result_val'  => is_wp_error( $result ) ? $result->get_error_message() : var_export( $result, true ),
-				'skin_result' => is_wp_error( $skin->result ) ? $skin->result->get_error_message() : var_export( $skin->result, true ),
-				'skin_msgs'   => $skin->get_upgrade_messages(),
-			);
-			// Check version on disk after upgrade.
-			wp_clean_plugins_cache( true );
-			$all_plugins = get_plugins();
-			if ( isset( $all_plugins[ $plugin_file ] ) ) {
-				$diag['version_on_disk'] = $all_plugins[ $plugin_file ]['Version'];
-			} else {
-				$diag['version_on_disk'] = 'PLUGIN NOT FOUND';
-			}
-			error_log( '[SudoWP Hub] upgrade() diagnostic: ' . wp_json_encode( $diag ) );
-			// --- End diagnostic logging ---
 
 			// Evaluate result.
 			if ( is_wp_error( $result ) ) {
