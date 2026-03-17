@@ -3,7 +3,7 @@
  * Plugin Name: SudoWP Hub
  * Plugin URI:  https://sudowp.com
  * Description: Connects to the SudoWP GitHub organization to search and install patched security plugins and themes directly.
- * Version:     1.5.6
+ * Version:     1.5.7
  * Author:      SudoWP
  * Author URI:  https://sudowp.com
  * License:     GPLv2 or later
@@ -19,7 +19,7 @@ defined( 'ABSPATH' ) || exit;
  *
  * Security hardened per WordPress.org plugin guidelines and OWASP recommendations.
  *
- * @version 1.5.6
+ * @version 1.5.7
  */
 class SudoWP_Hub {
 
@@ -295,7 +295,7 @@ class SudoWP_Hub {
 				'sudowp-hub-updates',
 				'',
 				array( 'jquery' ),
-				'1.5.6',
+				'1.5.7',
 				true
 			);
 
@@ -334,7 +334,7 @@ class SudoWP_Hub {
 			'sudowp-hub-admin',
 			'', // Inline only; no external file needed for v1.
 			array( 'jquery' ),
-			'1.5.6',
+			'1.5.7',
 			true
 		);
 
@@ -1037,17 +1037,28 @@ JS;
 
 		$new_source = trailingslashit( $remote_source ) . $this->current_install_slug . '/';
 
+		// Temporary debug logging to trace rename behavior during updates.
+		error_log( sprintf(
+			'[SudoWP Hub] rename_github_source: slug=%s source=%s new_source=%s match=%s',
+			$this->current_install_slug,
+			$source,
+			$new_source,
+			$source === $new_source ? 'yes' : 'no'
+		) );
+
 		if ( $source === $new_source ) {
 			return $source; // Already correctly named.
 		}
 
 		if ( ! $wp_filesystem->move( $source, $new_source ) ) {
+			error_log( '[SudoWP Hub] rename_github_source: move FAILED' );
 			return new WP_Error(
 				'sudowp_rename_failed',
 				__( 'Could not rename the plugin folder. Check filesystem permissions.', 'sudowp-hub' )
 			);
 		}
 
+		error_log( '[SudoWP Hub] rename_github_source: move OK -> ' . $new_source );
 		return $new_source;
 	}
 
@@ -1071,6 +1082,10 @@ JS;
 	private function clear_all_update_caches() {
 		delete_transient( 'sudowp_hub_update_data' );
 		delete_transient( 'sudowp_hub_org_repos' );
+
+		// Force WordPress to re-read plugin headers from disk so
+		// get_plugins() returns the newly installed version numbers.
+		wp_clean_plugins_cache();
 
 		// Clear per-slug tag caches.
 		global $wpdb;
