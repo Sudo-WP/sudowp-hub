@@ -3,7 +3,7 @@
  * Plugin Name: SudoWP Hub
  * Plugin URI:  https://sudowp.com
  * Description: Connects to the SudoWP GitHub organization to search and install patched security plugins and themes directly.
- * Version:     1.5.8
+ * Version:     1.5.9
  * Author:      SudoWP
  * Author URI:  https://sudowp.com
  * License:     GPLv2 or later
@@ -19,7 +19,7 @@ defined( 'ABSPATH' ) || exit;
  *
  * Security hardened per WordPress.org plugin guidelines and OWASP recommendations.
  *
- * @version 1.5.8
+ * @version 1.5.9
  */
 class SudoWP_Hub {
 
@@ -295,7 +295,7 @@ class SudoWP_Hub {
 				'sudowp-hub-updates',
 				'',
 				array( 'jquery' ),
-				'1.5.8',
+				'1.5.9',
 				true
 			);
 
@@ -334,7 +334,7 @@ class SudoWP_Hub {
 			'sudowp-hub-admin',
 			'', // Inline only; no external file needed for v1.
 			array( 'jquery' ),
-			'1.5.8',
+			'1.5.9',
 			true
 		);
 
@@ -1511,36 +1511,35 @@ JS;
 				continue;
 			}
 
-			// Run the upgrade via Plugin_Upgrader->run() with clear_destination.
-			// Using run() directly instead of install() or upgrade() because:
-			// - install() sets clear_destination=false, failing on existing dirs.
-			// - upgrade() reads the package URL from the update_plugins transient,
-			//   which does not contain our GitHub-hosted plugins.
-			// - run() accepts the package URL directly and clear_destination=true
-			//   tells WP to remove the old directory before extracting, which is
-			//   the same behavior as core's own plugin update flow.
-			// This also handles filesystem credentials properly on FTP/SSH hosts,
-			// unlike the manual WP_Filesystem() + delete pattern.
+			// Inject update data into the update_plugins transient so that
+			// Plugin_Upgrader->upgrade() can find the package URL.
+			// upgrade() is the method WordPress core uses for all plugin
+			// updates. It calls init(), adds deactivate_plugin_before_upgrade
+			// and delete_old_plugin filters, passes clear_destination=true
+			// to run(), and calls wp_clean_plugins_cache() after completion.
+			// Calling run() directly skips all of this and breaks on live
+			// servers that need proper filesystem credential handling.
+			$update_plugins = get_site_transient( 'update_plugins' );
+			if ( ! is_object( $update_plugins ) ) {
+				$update_plugins = new stdClass();
+			}
+			if ( ! isset( $update_plugins->response ) ) {
+				$update_plugins->response = array();
+			}
+			$update_plugins->response[ $plugin_file ] = (object) array(
+				'slug'        => $slug,
+				'plugin'      => $plugin_file,
+				'new_version' => $tag_data['version'],
+				'package'     => $zip_url,
+			);
+			set_site_transient( 'update_plugins', $update_plugins );
+
 			$this->current_install_slug = $slug;
 			add_filter( 'upgrader_source_selection', array( $this, 'rename_github_source' ), 10, 3 );
 
 			$skin     = new WP_Ajax_Upgrader_Skin();
 			$upgrader = new Plugin_Upgrader( $skin );
-			$result   = $upgrader->run( array(
-				'package'           => $zip_url,
-				'destination'       => WP_PLUGIN_DIR,
-				'clear_destination' => true,
-				'clear_working'     => true,
-				'is_multi'          => false,
-				'hook_extra'        => array(
-					'plugin'      => $plugin_file,
-					'temp_backup' => array(
-						'slug' => $slug,
-						'src'  => WP_PLUGIN_DIR,
-						'dir'  => 'plugins',
-					),
-				),
-			) );
+			$result   = $upgrader->upgrade( $plugin_file );
 
 			remove_filter( 'upgrader_source_selection', array( $this, 'rename_github_source' ) );
 			$this->current_install_slug = null;
