@@ -3,7 +3,7 @@ Contributors: sudowp
 Tags: github, installer, security, patch, maintenance, abandoned-plugins
 Requires at least: 6.0
 Tested up to: 6.7
-Stable tag: 1.5.9
+Stable tag: 1.5.10
 License: GPLv2 or later
 License URI: http://www.gnu.org/licenses/gpl-2.0.html
 
@@ -54,6 +54,9 @@ Yes. SudoWP Hub only searches and installs software from the **Sudo-WP** organiz
 To reduce GitHub API calls and improve performance. Results are cached for 5 minutes per unique search term and type. Caches are stored as WordPress transients and are automatically cleared by WordPress.
 
 == Changelog ==
+
+= 1.5.10 =
+* Debug: Diagnostic logging added to upgrade() and rename_github_source() to trace why updates report success but do not change files on disk. Check wp-content/debug.log after triggering an update.
 
 = 1.5.9 =
 * Fix: Plugin updates now use Plugin_Upgrader->upgrade() by injecting the GitHub package URL into the update_plugins transient. This is the same code path WordPress core uses for all plugin updates, ensuring correct filesystem handling, plugin deactivation before file replacement, and temp backup support.
