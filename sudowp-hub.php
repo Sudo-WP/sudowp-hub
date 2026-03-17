@@ -3,7 +3,7 @@
  * Plugin Name: SudoWP Hub
  * Plugin URI:  https://sudowp.com
  * Description: Connects to the SudoWP GitHub organization to search and install patched security plugins and themes directly.
- * Version:     1.5.7
+ * Version:     1.5.8
  * Author:      SudoWP
  * Author URI:  https://sudowp.com
  * License:     GPLv2 or later
@@ -19,7 +19,7 @@ defined( 'ABSPATH' ) || exit;
  *
  * Security hardened per WordPress.org plugin guidelines and OWASP recommendations.
  *
- * @version 1.5.7
+ * @version 1.5.8
  */
 class SudoWP_Hub {
 
@@ -295,7 +295,7 @@ class SudoWP_Hub {
 				'sudowp-hub-updates',
 				'',
 				array( 'jquery' ),
-				'1.5.7',
+				'1.5.8',
 				true
 			);
 
@@ -334,7 +334,7 @@ class SudoWP_Hub {
 			'sudowp-hub-admin',
 			'', // Inline only; no external file needed for v1.
 			array( 'jquery' ),
-			'1.5.7',
+			'1.5.8',
 			true
 		);
 
@@ -1037,28 +1037,17 @@ JS;
 
 		$new_source = trailingslashit( $remote_source ) . $this->current_install_slug . '/';
 
-		// Temporary debug logging to trace rename behavior during updates.
-		error_log( sprintf(
-			'[SudoWP Hub] rename_github_source: slug=%s source=%s new_source=%s match=%s',
-			$this->current_install_slug,
-			$source,
-			$new_source,
-			$source === $new_source ? 'yes' : 'no'
-		) );
-
 		if ( $source === $new_source ) {
 			return $source; // Already correctly named.
 		}
 
 		if ( ! $wp_filesystem->move( $source, $new_source ) ) {
-			error_log( '[SudoWP Hub] rename_github_source: move FAILED' );
 			return new WP_Error(
 				'sudowp_rename_failed',
 				__( 'Could not rename the plugin folder. Check filesystem permissions.', 'sudowp-hub' )
 			);
 		}
 
-		error_log( '[SudoWP Hub] rename_github_source: move OK -> ' . $new_source );
 		return $new_source;
 	}
 
@@ -1522,32 +1511,36 @@ JS;
 				continue;
 			}
 
-			// Remove the existing plugin directory before installing the update.
-			// WordPress's Plugin_Upgrader->install() calls WP_Upgrader->install_package(),
-			// which aborts with "Destination folder already exists" if the target dir is
-			// present — it never overwrites. For updates we must clear the directory first.
-			$plugin_dir = trailingslashit( WP_PLUGIN_DIR ) . $slug;
-			if ( is_dir( $plugin_dir ) ) {
-				global $wp_filesystem;
-				if ( ! $wp_filesystem ) {
-					WP_Filesystem();
-				}
-				if ( $wp_filesystem && ! $wp_filesystem->delete( $plugin_dir, true ) ) {
-					$failed[] = array(
-						'plugin_file' => $plugin_file,
-						'message'     => __( 'Could not remove existing plugin directory before update. Check filesystem permissions.', 'sudowp-hub' ),
-					);
-					continue;
-				}
-			}
-
-			// Run the upgrade via Plugin_Upgrader.
+			// Run the upgrade via Plugin_Upgrader->run() with clear_destination.
+			// Using run() directly instead of install() or upgrade() because:
+			// - install() sets clear_destination=false, failing on existing dirs.
+			// - upgrade() reads the package URL from the update_plugins transient,
+			//   which does not contain our GitHub-hosted plugins.
+			// - run() accepts the package URL directly and clear_destination=true
+			//   tells WP to remove the old directory before extracting, which is
+			//   the same behavior as core's own plugin update flow.
+			// This also handles filesystem credentials properly on FTP/SSH hosts,
+			// unlike the manual WP_Filesystem() + delete pattern.
 			$this->current_install_slug = $slug;
 			add_filter( 'upgrader_source_selection', array( $this, 'rename_github_source' ), 10, 3 );
 
 			$skin     = new WP_Ajax_Upgrader_Skin();
 			$upgrader = new Plugin_Upgrader( $skin );
-			$result   = $upgrader->install( $zip_url );
+			$result   = $upgrader->run( array(
+				'package'           => $zip_url,
+				'destination'       => WP_PLUGIN_DIR,
+				'clear_destination' => true,
+				'clear_working'     => true,
+				'is_multi'          => false,
+				'hook_extra'        => array(
+					'plugin'      => $plugin_file,
+					'temp_backup' => array(
+						'slug' => $slug,
+						'src'  => WP_PLUGIN_DIR,
+						'dir'  => 'plugins',
+					),
+				),
+			) );
 
 			remove_filter( 'upgrader_source_selection', array( $this, 'rename_github_source' ) );
 			$this->current_install_slug = null;
