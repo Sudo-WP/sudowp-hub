@@ -3,7 +3,7 @@
  * Plugin Name: SudoWP Hub
  * Plugin URI:  https://sudowp.com
  * Description: Connects to the SudoWP GitHub organization to search and install patched security plugins and themes directly.
- * Version:     1.5.0
+ * Version:     1.5.1
  * Author:      SudoWP
  * Author URI:  https://sudowp.com
  * License:     GPLv2 or later
@@ -19,7 +19,7 @@ defined( 'ABSPATH' ) || exit;
  *
  * Security hardened per WordPress.org plugin guidelines and OWASP recommendations.
  *
- * @version 1.5.0
+ * @version 1.5.1
  */
 class SudoWP_Hub {
 
@@ -1417,6 +1417,25 @@ JS;
 					'message'     => __( 'Invalid tag URL. Update skipped.', 'sudowp-hub' ),
 				);
 				continue;
+			}
+
+			// Remove the existing plugin directory before installing the update.
+			// WordPress's Plugin_Upgrader->install() calls WP_Upgrader->install_package(),
+			// which aborts with "Destination folder already exists" if the target dir is
+			// present — it never overwrites. For updates we must clear the directory first.
+			$plugin_dir = trailingslashit( WP_PLUGIN_DIR ) . $slug;
+			if ( is_dir( $plugin_dir ) ) {
+				global $wp_filesystem;
+				if ( ! $wp_filesystem ) {
+					WP_Filesystem();
+				}
+				if ( $wp_filesystem && ! $wp_filesystem->delete( $plugin_dir, true ) ) {
+					$failed[] = array(
+						'plugin_file' => $plugin_file,
+						'message'     => __( 'Could not remove existing plugin directory before update. Check filesystem permissions.', 'sudowp-hub' ),
+					);
+					continue;
+				}
 			}
 
 			// Run the upgrade via Plugin_Upgrader.
