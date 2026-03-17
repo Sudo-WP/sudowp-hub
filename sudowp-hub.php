@@ -3,7 +3,7 @@
  * Plugin Name: SudoWP Hub
  * Plugin URI:  https://sudowp.com
  * Description: Connects to the SudoWP GitHub organization to search and install patched security plugins and themes directly.
- * Version:     1.5.1
+ * Version:     1.5.2
  * Author:      SudoWP
  * Author URI:  https://sudowp.com
  * License:     GPLv2 or later
@@ -19,7 +19,7 @@ defined( 'ABSPATH' ) || exit;
  *
  * Security hardened per WordPress.org plugin guidelines and OWASP recommendations.
  *
- * @version 1.5.1
+ * @version 1.5.2
  */
 class SudoWP_Hub {
 
@@ -1357,7 +1357,15 @@ JS;
 		set_transient( $rate_key, 1, 30 );
 
 		// 4. Sanitize input.
-		$raw_files = isset( $_POST['plugin_files'] ) ? (array) $_POST['plugin_files'] : array();
+		// jQuery $.post serializes arrays as plugin_files[0], plugin_files[1], etc.
+		// PHP receives these as $_POST['plugin_files'] when sent as a plain array.
+		// Handle both flat string (single) and array (bulk) transparently.
+		$raw_files = array();
+		if ( isset( $_POST['plugin_files'] ) ) {
+			$raw_files = is_array( $_POST['plugin_files'] )
+				? $_POST['plugin_files']
+				: array( $_POST['plugin_files'] );
+		}
 		if ( empty( $raw_files ) ) {
 			wp_send_json_error( __( 'No plugins selected.', 'sudowp-hub' ) );
 		}
@@ -1470,9 +1478,12 @@ JS;
 			}
 		}
 
-		// Clear cached update data to force fresh check on next page load.
-		delete_transient( 'sudowp_hub_update_data' );
-		delete_transient( 'sudowp_hub_org_repos' );
+		// Clear cached update data only when at least one update succeeded,
+		// so a full API failure does not wipe the cache and leave the page blank.
+		if ( ! empty( $updated ) ) {
+			delete_transient( 'sudowp_hub_update_data' );
+			delete_transient( 'sudowp_hub_org_repos' );
+		}
 
 		wp_send_json_success( array(
 			'updated' => $updated,
@@ -1726,7 +1737,7 @@ JS;
 
 		$.post(hub.ajaxUrl, {
 			action: 'sudowp_hub_run_updates',
-			'plugin_files[]': pluginFile,
+			'plugin_files': [pluginFile],
 			_nonce: hub.updatesNonce
 		})
 		.done(function(response) {
