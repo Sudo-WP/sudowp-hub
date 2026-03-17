@@ -3,7 +3,7 @@ Contributors: sudowp
 Tags: github, installer, security, patch, maintenance, abandoned-plugins
 Requires at least: 6.0
 Tested up to: 6.7
-Stable tag: 1.5.12
+Stable tag: 1.5.13
 License: GPLv2 or later
 License URI: http://www.gnu.org/licenses/gpl-2.0.html
 
@@ -54,6 +54,10 @@ Yes. SudoWP Hub only searches and installs software from the **Sudo-WP** organiz
 To reduce GitHub API calls and improve performance. Results are cached for 5 minutes per unique search term and type. Caches are stored as WordPress transients and are automatically cleared by WordPress.
 
 == Changelog ==
+
+= 1.5.13 =
+* Housekeeping: Removed CLAUDE_CODE_PROMPT.md from git tracking (was accidentally committed).
+* Docs: Updated README.md with full changelog from 1.2.1 through 1.5.12, updated version badge, added Updates feature documentation, and updated architecture table with new methods.
 
 = 1.5.12 =
 * Fix: Plugins that were active before an update are now re-activated automatically after the upgrade completes, matching WordPress core behavior. Multisite network-wide activation is preserved.
