@@ -3,7 +3,7 @@
  * Plugin Name: SudoWP Hub
  * Plugin URI:  https://sudowp.com
  * Description: Connects to the SudoWP GitHub organization to search and install patched security plugins and themes directly.
- * Version:     1.5.2
+ * Version:     1.5.3
  * Author:      SudoWP
  * Author URI:  https://sudowp.com
  * License:     GPLv2 or later
@@ -19,7 +19,7 @@ defined( 'ABSPATH' ) || exit;
  *
  * Security hardened per WordPress.org plugin guidelines and OWASP recommendations.
  *
- * @version 1.5.2
+ * @version 1.5.3
  */
 class SudoWP_Hub {
 
@@ -1258,6 +1258,23 @@ JS;
 		$all_plugins = get_plugins();
 		$org_repos   = $this->get_sudowp_org_repos();
 
+		// If the org repos API call failed, fall back to matching installed plugins
+		// whose slug starts with 'sudowp-'. This keeps the page visible even when
+		// the GitHub API is temporarily unreachable.
+		$using_fallback = false;
+		if ( empty( $org_repos ) ) {
+			$using_fallback = true;
+			foreach ( array_keys( $all_plugins ) as $plugin_file ) {
+				$folder = strpos( $plugin_file, '/' ) !== false
+					? explode( '/', $plugin_file )[0]
+					: pathinfo( $plugin_file, PATHINFO_FILENAME );
+				if ( strpos( $folder, 'sudowp-' ) === 0 ) {
+					$org_repos[] = $folder;
+				}
+			}
+		}
+
+		// Still nothing — genuinely no SudoWP plugins installed.
 		if ( empty( $org_repos ) ) {
 			return array();
 		}
@@ -1300,7 +1317,12 @@ JS;
 			);
 		}
 
-		set_transient( $cache_key, $update_data, $this->update_cache_ttl );
+		// Only cache when we had a real org repos list from the API.
+		// Fallback results (based on slug prefix) are never cached so the next
+		// page load always retries the real GitHub API call.
+		if ( ! $using_fallback ) {
+			set_transient( $cache_key, $update_data, $this->update_cache_ttl );
+		}
 
 		return $update_data;
 	}
